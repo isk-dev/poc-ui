@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Cloudformation template to create Amplify Code Build and Deployment Pipeline.
+Parameters:
+  Repository:
+    Type: String
+    Description: GitHub Repository URL.
+  Environment:
+    Type: String
+    Description: Name of the environment for the application.
+    AllowedValues:
+      - dev
+      - prod
+  Branch:
+    Type: String
+    Description: Name of the branch from which code should be deployed.
+    AllowedValues:
+      - develop
+      - master
+  CostCenter:
+    Type: String
+    Description: CostCenter number under which stack needs to be created.
+  Project:
+    Type: String
+    Description: Name of the Project.
+  Team:
+    Type: String
+    Description: Name of the Application.
+
+Resources:
+  AmplifyRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - amplify.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Description: IAM Service role allowing Amplify to build and deploy the app.
+      ManagedPolicyArns:
+        - !Sub "arn:aws:iam::${AWS::AccountId}:policy/EITCTO-STANDARD-DENY-POLICY"
+      RoleName: !Sub "${Team}-${Project}-${Environment}-amplify-role"
+      Tags:
+        - Key: ApplicationName
+          Value: !Ref Project
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: TeamName
+          Value: !Ref Team
+
+  AmplifyRolePolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - amplify:*
+            Resource:
+              - "*"
+      PolicyName: !Sub "${Team}-${Project}-${Environment}-amplify-role-policy"
+      Roles:
+        - !Ref AmplifyRole
+
+  AmplifyApp:
+    Type: "AWS::Amplify::App"
+    Properties:
+      CustomRules:
+        - Source: '</^[^.]+$|\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|ttf|map|json)$)([^.]+$)/>'
+          Status: "200"
+          Target: "/index.html"
+      Description: Norms-Mapping UI allowing user to map raw values to normalize values
+      EnvironmentVariables:
+        - Name: ENVIRONMENT
+          Value: !Ref Environment
+      IAMServiceRole: !GetAtt AmplifyRole.Arn
+      Name: !Sub "${Team}-${Project}-${Environment}"
+      OauthToken: "{{resolve:ssm:/meff/compass/codesuite/Github/OAuthToken:1}}"
+      Repository: !Ref Repository
+      Tags:
+        - Key: ApplicationName
+          Value: !Ref Project
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: TeamName
+          Value: !Ref Team
+        - Key: Environment
+          Value: !Ref Environment
+
+  AmplifyBranch:
+    Type: "AWS::Amplify::Branch"
+    Properties:
+      Description: Code branch from which app to be deployed
+      AppId: !GetAtt AmplifyApp.AppId
+      EnablePullRequestPreview: true
+      EnableAutoBuild: true
+      BranchName: !Ref Branch
+      Tags:
+        - Key: ApplicationName
+          Value: !Ref Project
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: TeamName
+          Value: !Ref Team
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  WebsiteUrl:
+    Value:
+      !Join [
+        ".",
+        [ !GetAtt AmplifyBranch.BranchName, !GetAtt AmplifyApp.DefaultDomain ],
+      ]
